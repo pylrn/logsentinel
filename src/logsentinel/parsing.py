@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from logsentinel.privacy import stable_hash
+
+
+@dataclass(frozen=True)
+class TemplateMatch:
+    event_id: str
+    template: str
+    is_unknown: bool = False
+
+
+class DeterministicTemplateMiner:
+    """Small deterministic template vocabulary with a Drain3-compatible boundary.
+
+    Dataset workflows can supply Drain3-mined templates to this class. Keeping the
+    vocabulary layer independent makes freezing and artifact loading testable even
+    when the optional Drain3 dependency is unavailable.
+    """
+
+    def __init__(self) -> None:
+        self._templates: dict[str, str] = {}
+        self._frozen = False
+
+    @property
+    def vocabulary_size(self) -> int:
+        return len(self._templates)
+
+    def fit_transform(self, messages: list[str]) -> list[TemplateMatch]:
+        return [self._fit(message) for message in messages]
+
+    def _fit(self, template: str) -> TemplateMatch:
+        if template not in self._templates:
+            if self._frozen:
+                return TemplateMatch("<UNK>", template, True)
+            self._templates[template] = f"E_{stable_hash(template, salt='event', length=12)}"
+        return TemplateMatch(self._templates[template], template)
+
+    def transform(self, template: str) -> TemplateMatch:
+        event_id = self._templates.get(template)
+        if event_id is None:
+            return TemplateMatch("<UNK>", template, True)
+        return TemplateMatch(event_id, template)
+
+    def freeze(self) -> None:
+        self._frozen = True
+
+    def to_dict(self) -> dict[str, str]:
+        return dict(self._templates)
+
+    @classmethod
+    def from_dict(cls, templates: dict[str, str]) -> DeterministicTemplateMiner:
+        miner = cls()
+        miner._templates = dict(templates)
+        miner.freeze()
+        return miner
+
