@@ -1,0 +1,129 @@
+# LogSentinel
+
+LogSentinel is a LogLLaMA-inspired research prototype for privacy-safe log anomaly detection. It combines deterministic log templates, statistical baselines, calibrated hybrid scores, optional DeepLog/Qwen model components, a FastAPI service, and a Streamlit operations dashboard.
+
+It is designed for reproducible HDFS and BGL experiments. It is not an autonomous incident-response product and does not ship invented public benchmark results.
+
+## What is implemented
+
+- Streaming Hugging Face record adapters for `logfit-project/HDFS_v1` and `logfit-project/BGL`.
+- Redaction before parsing or persistence, including IPs, block IDs, paths, emails, UUIDs, secrets, and long identifiers.
+- Drain3 integration plus a deterministic, frozen event vocabulary.
+- HDFS block sessions, BGL 60-second windows, and chronological 60/20/20 splits.
+- Template rarity, PCA, Isolation Forest, DeepLog building blocks, Qwen2.5-1.5B QLoRA preparation, and calibrated hybrid scoring.
+- Immutable per-environment artifacts with checksums and parser/model isolation.
+- CLI, FastAPI endpoints, and a Streamlit dashboard.
+- Synthetic smoke data that is always labeled as illustrative and never presented as a public benchmark.
+
+## Install
+
+Python 3.11 or 3.12 is recommended for the complete ML stack.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[data,dashboard,dev]'
+```
+
+For CUDA QLoRA training, install the ML group on a supported Linux/Colab runtime:
+
+```bash
+python -m pip install -e '.[data,ml,dev]'
+```
+
+## Quick start
+
+Run an offline synthetic smoke workflow. The generated report explicitly states that it is not a public benchmark:
+
+```bash
+logsentinel run-all --dataset hdfs --workspace demo --sample-count 240 --version sample-v1
+```
+
+Start the API with the resulting artifact:
+
+```bash
+logsentinel serve \
+  --artifact-root demo/artifacts \
+  --environment hdfs \
+  --version sample-v1
+```
+
+In another terminal, start the dashboard:
+
+```bash
+logsentinel dashboard --api-url http://127.0.0.1:8000
+```
+
+## Public data workflow
+
+Start with a bounded data pass before attempting full datasets:
+
+```bash
+logsentinel prepare \
+  --dataset hdfs \
+  --limit 100000 \
+  --output data/processed/hdfs-100k.json
+
+logsentinel train-baselines \
+  --prepared data/processed/hdfs-100k.json \
+  --output reports/generated/hdfs-baselines.json
+
+logsentinel calibrate \
+  --prepared data/processed/hdfs-100k.json \
+  --artifact-root artifacts \
+  --version hdfs-100k-v1
+
+logsentinel evaluate \
+  --prepared data/processed/hdfs-100k.json \
+  --artifact-root artifacts \
+  --environment hdfs \
+  --version hdfs-100k-v1 \
+  --output reports/generated/hdfs-hybrid.json
+```
+
+The public mirrors retain LogHub provenance. Review their dataset cards and original terms before redistribution:
+
+- [HDFS_v1](https://huggingface.co/datasets/logfit-project/HDFS_v1)
+- [BGL](https://huggingface.co/datasets/logfit-project/BGL)
+- [LogHub](https://github.com/logpai/loghub)
+
+## Transformer workflow
+
+Validate the adapter configuration without downloading a model:
+
+```bash
+logsentinel train-transformer \
+  --prepared data/processed/hdfs-100k.json \
+  --output reports/generated/hdfs-transformer-plan.json \
+  --dry-run
+```
+
+The default model is `Qwen/Qwen2.5-1.5B`, with 4-bit NF4 loading, all-linear LoRA targets, trainable event embeddings/LM head, and gradient checkpointing. Full adapter training should be run from the supplied project on a CUDA/Colab environment; measured results must be generated from the locked temporal test partition.
+
+## API
+
+- `POST /v1/score`
+- `GET /v1/anomalies`
+- `GET /v1/models/{environment}/status`
+- `POST /v1/feedback`
+- `GET /healthz`
+
+Raw messages are redacted before template matching. Responses contain redacted templates and event IDs, not the submitted raw message.
+
+## Security and limitations
+
+- Artifact files use `joblib` and must only be loaded from trusted local training output. Checksums detect corruption; they do not make untrusted pickle content safe.
+- Each environment has an isolated parser, detector, threshold, and version path.
+- Validation labels calibrate the fusion model. They are not used in normal-only next-event training.
+- The current local prepared JSON format is suitable for bounded experiments. Multi-million-sequence full runs should use a sharded/columnar prepared store rather than a single JSON document.
+- Public-log detection delay is only a proxy for enterprise MTTD because the datasets do not include complete incident-ticket timelines.
+
+## Development
+
+```bash
+python -m pytest -q
+ruff check .
+```
+
+The approved implementation plan is in `docs/superpowers/plans/2026-08-20-logsentinel-implementation.md`. The dashboard design reference and extracted tokens are in `docs/design/`.
+

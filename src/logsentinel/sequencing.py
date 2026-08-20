@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from logsentinel.privacy import stable_hash
 from logsentinel.schemas import DatasetName, EventSequence, LogEvent

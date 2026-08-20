@@ -113,7 +113,7 @@ class PCADetector:
     def fit(self, sequences: list[EncodedSequence]) -> PCADetector:
         matrix = self.extractor.fit(sequences).transform(sequences).counts
         scaled = self.scaler.fit_transform(matrix)
-        components = max(1, min(scaled.shape[0] - 1, scaled.shape[1]))
+        components = max(1, min(scaled.shape[0] - 1, max(1, scaled.shape[1] // 2)))
         self.model = PCA(n_components=components, svd_solver="full").fit(scaled)
         return self
 
@@ -203,4 +203,3 @@ def _mean_and_safe_std(values: np.ndarray) -> tuple[float, float]:
 def _validate_feature_matrix(matrix: np.ndarray, names: tuple[str, ...]) -> None:
     if matrix.ndim != 2 or matrix.shape[1] != len(names):
         raise ValueError(f"expected a feature matrix with {len(names)} columns")
-

@@ -88,7 +88,9 @@ def test_iter_public_records_is_lazy_and_respects_limit() -> None:
 def test_drain_parser_redacts_before_fitting_and_does_not_mutate_during_match() -> None:
     class Cluster:
         cluster_id = 7
-        get_template = lambda self: "login from <IP>"
+
+        def get_template(self):
+            return "login from <IP>"
 
     class FakeDrain:
         def __init__(self) -> None:

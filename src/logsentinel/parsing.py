@@ -51,6 +51,12 @@ class DeterministicTemplateMiner:
     def to_dict(self) -> dict[str, str]:
         return dict(self._templates)
 
+    def template_for_event(self, event_id: str) -> str | None:
+        for template, candidate in self._templates.items():
+            if candidate == event_id:
+                return template
+        return None
+
     @classmethod
     def from_dict(cls, templates: dict[str, str]) -> DeterministicTemplateMiner:
         miner = cls()
