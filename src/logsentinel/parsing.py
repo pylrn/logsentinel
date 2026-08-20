@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
-from logsentinel.privacy import stable_hash
+from logsentinel.privacy import Redactor, stable_hash
 
 
 @dataclass(frozen=True)
@@ -57,3 +58,36 @@ class DeterministicTemplateMiner:
         miner.freeze()
         return miner
 
+
+class DrainTemplateParser:
+    """Privacy-safe adapter around Drain3's non-mutating match interface."""
+
+    def __init__(self, *, backend: Any | None = None, redactor: Redactor | None = None) -> None:
+        if backend is None:
+            try:
+                from drain3 import TemplateMiner
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Drain parsing requires the 'data' extra: pip install 'logsentinel[data]'"
+                ) from exc
+            backend = TemplateMiner()
+        self.backend = backend
+        self.redactor = redactor or Redactor()
+
+    def fit(self, raw_message: str) -> TemplateMatch:
+        normalized = self.redactor.redact(raw_message)
+        result = self.backend.add_log_message(normalized)
+        template = str(result["template_mined"])
+        return TemplateMatch(_event_id(template), template)
+
+    def transform(self, raw_message: str) -> TemplateMatch:
+        normalized = self.redactor.redact(raw_message)
+        cluster = self.backend.match(normalized, full_search_strategy="fallback")
+        if cluster is None:
+            return TemplateMatch("<UNK>", normalized, True)
+        template = str(cluster.get_template())
+        return TemplateMatch(_event_id(template), template)
+
+
+def _event_id(template: str) -> str:
+    return f"E_{stable_hash(template, salt='event', length=12)}"
