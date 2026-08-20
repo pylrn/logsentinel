@@ -2,7 +2,7 @@
 
 ## Model description
 
-LogSentinel is a tenant-isolated log anomaly detection prototype. Its default deployable artifact combines template rarity, PCA reconstruction error, Isolation Forest scores, and logistic calibration. It also includes executable DeepLog and Qwen2.5-1.5B QLoRA training paths for controlled experiments.
+LogSentinel is a tenant-isolated log anomaly detection prototype. A statistical artifact combines template rarity, PCA reconstruction error, Isolation Forest scores, and logistic calibration. A transformer-hybrid artifact additionally loads a Qwen2.5-1.5B QLoRA adapter and fuses next-event NLL, rank, top-k miss rate, and predictive entropy.
 
 The base transformer is `Qwen/Qwen2.5-1.5B`. Each environment receives its own event vocabulary, adapter output, calibration threshold, parser state, and artifact version. The base checkpoint may be shared; environment artifacts may not.
 
@@ -19,7 +19,7 @@ The model is not intended to autonomously block traffic, disable accounts, remed
 
 Input is an ordered, redacted sequence of deterministic event-template IDs. The serving API accepts raw log messages but redacts them before template matching.
 
-Outputs include an anomaly score, threshold decision, component scores, expected next templates, recent event-ID context, and a rule-based explanation. No external generative service receives raw logs.
+Outputs include an anomaly score, threshold decision, component scores, adapter-predicted next templates, recent event-ID context, and a rule-based explanation. No external generative service receives raw logs. Statistical-only artifacts use transition counts for expected templates and are clearly identified by `model_kind`.
 
 ## Training
 
@@ -47,4 +47,3 @@ This repository contains no claimed HDFS or BGL benchmark scores. Synthetic smok
 ## Privacy and security
 
 Redaction occurs before parser fitting, prepared-data persistence, or API result storage. Artifact checksums detect corruption, but `joblib` artifacts are trusted-code inputs and must never be loaded from untrusted sources.
-

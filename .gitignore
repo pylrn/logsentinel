@@ -6,8 +6,8 @@
 __pycache__/
 *.py[cod]
 .venv/
+.logsentinel-storage/
 artifacts/
 data/cache/
 data/processed/
 reports/generated/
-

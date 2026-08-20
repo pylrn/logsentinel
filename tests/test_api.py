@@ -7,12 +7,18 @@ from fastapi.testclient import TestClient
 from logsentinel.api import ModelRegistry, create_app
 from logsentinel.artifacts import ArtifactMetadata, EnvironmentArtifact
 from logsentinel.detection import EncodedSequence
+from logsentinel.neural import TransformerSequenceScore
 from logsentinel.parsing import DeterministicTemplateMiner
 from logsentinel.pipeline import HybridDetector
 from logsentinel.schemas import DatasetName
 
 
-def configured_artifact(environment: DatasetName) -> EnvironmentArtifact:
+def configured_artifact(
+    environment: DatasetName,
+    *,
+    transformer: bool = False,
+    adapter_path=None,
+) -> EnvironmentArtifact:
     parser = DeterministicTemplateMiner()
     matches = parser.fit_transform(["normal event", "normal finish", "rare warning"])
     parser.freeze()
@@ -42,16 +48,37 @@ def configured_artifact(environment: DatasetName) -> EnvironmentArtifact:
         row(12, ("<UNK>", "<UNK>"), 1),
         row(13, ("<UNK>", "<UNK>", "<UNK>"), 1),
     ]
-    detector = HybridDetector(random_state=4).fit(train, validation)
+    train_signals = (
+        [[0.2, 1.0, 0.0, 0.3] for _ in train] if transformer else None
+    )
+    validation_signals = (
+        [
+            [0.2, 1.0, 0.0, 0.3],
+            [0.3, 1.0, 0.0, 0.4],
+            [5.0, 5.0, 1.0, 2.0],
+            [6.0, 6.0, 1.0, 2.2],
+        ]
+        if transformer
+        else None
+    )
+    detector = HybridDetector(random_state=4).fit(
+        train,
+        validation,
+        train_transformer_signals=train_signals,
+        validation_transformer_signals=validation_signals,
+    )
     return EnvironmentArtifact(
         metadata=ArtifactMetadata(
             environment=environment,
             version="test-v1",
             threshold=detector.threshold or 0.5,
             split_id="test-split",
+            model_kind="hybrid-transformer" if transformer else "hybrid-statistical",
+            adapter_version="adapter-test" if transformer else None,
         ),
         detector=detector,
         parser=parser,
+        adapter_path=adapter_path,
     )
 
 
@@ -133,3 +160,50 @@ def test_unknown_environment_model_returns_not_found() -> None:
     registry = ModelRegistry([configured_artifact(DatasetName.HDFS)])
     api = TestClient(create_app(registry))
     assert api.get("/v1/models/bgl/status").status_code == 404
+
+
+def test_score_uses_packaged_qwen_adapter_signals_and_predictions(tmp_path) -> None:
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    artifact = configured_artifact(
+        DatasetName.HDFS, transformer=True, adapter_path=adapter
+    )
+    calls = []
+
+    class FakeScorer:
+        def score(self, sequences):
+            return [
+                TransformerSequenceScore(
+                    negative_log_likelihood=0.2,
+                    mean_rank=1.0,
+                    top_k_miss_rate=0.0,
+                    entropy=0.3,
+                    expected_event_ids=(sequences[0].event_ids[0],),
+                )
+            ]
+
+    def factory(path):
+        calls.append(path)
+        return FakeScorer()
+
+    registry = ModelRegistry([artifact], transformer_scorer_factory=factory)
+    api = TestClient(create_app(registry))
+    response = api.post(
+        "/v1/score",
+        json={
+            "environment": "hdfs",
+            "events": [request_event("normal event"), request_event("normal finish")],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["adapter_version"] == "adapter-test"
+    assert {"qwen_nll", "qwen_rank", "qwen_top_k_miss", "qwen_entropy"} <= set(
+        body["results"][0]["component_scores"]
+    )
+    assert body["results"][0]["expected_templates"] == ["normal event"]
+    assert calls == [adapter]
+    status = api.get("/v1/models/hdfs/status").json()
+    assert status["inference_backend"] == "qwen-adapter"
+    assert status["adapter_loaded"] is True

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from logsentinel import __version__
 from logsentinel.schemas import DatasetName
 
 
@@ -53,7 +54,7 @@ def build_run_manifest(
         try:
             versions[package] = metadata.version(package)
         except metadata.PackageNotFoundError:
-            versions[package] = "not-installed"
+            versions[package] = __version__ if package == "logsentinel" else "not-installed"
     return RunManifest(
         dataset=dataset,
         split_id=split_id,
@@ -84,4 +85,3 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-

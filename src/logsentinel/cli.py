@@ -16,9 +16,17 @@ from logsentinel.detection import (
 )
 from logsentinel.evaluation import classification_report
 from logsentinel.manifests import build_run_manifest, write_immutable_manifest
-from logsentinel.neural import DeepLogDetector, EventTokenCodec, QLoRASettings, train_qwen_adapter
+from logsentinel.neural import (
+    DeepLogDetector,
+    EventTokenCodec,
+    QLoRASettings,
+    QwenAdapterScorer,
+    train_qwen_adapter,
+    transformer_signal_matrix,
+)
 from logsentinel.pipeline import select_f1_threshold
 from logsentinel.schemas import DatasetName
+from logsentinel.storage import configure_local_storage, prefetch_huggingface_model
 from logsentinel.workflow import (
     PreparedDataset,
     prepare_events,
@@ -39,8 +47,10 @@ def prepare(
     output: Annotated[Path, typer.Option()],
     limit: Annotated[int | None, typer.Option(min=20)] = None,
     sample: Annotated[bool, typer.Option(help="Use deterministic synthetic smoke data.")] = False,
+    storage_root: Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Redact, parse, sequence and temporally split HDFS or BGL events."""
+    configure_local_storage(storage_root)
     if sample:
         events = sample_events(dataset, count=limit or 240)
     else:
@@ -72,8 +82,10 @@ def train_transformer(
     output: Annotated[Path, typer.Option()],
     adapter_output: Annotated[Path | None, typer.Option()] = None,
     dry_run: Annotated[bool, typer.Option()] = True,
+    storage_root: Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Validate or execute the Qwen2.5 QLoRA adapter-training configuration."""
+    layout = configure_local_storage(storage_root)
     dataset = PreparedDataset.load(prepared)
     codec = EventTokenCodec.fit([row.event_ids for row in dataset.train])
     settings = QLoRASettings()
@@ -90,7 +102,7 @@ def train_transformer(
         "added_tokens": len(codec.added_tokens),
     }
     if not dry_run:
-        target = adapter_output or output.with_suffix("")
+        target = adapter_output or layout.adapters / dataset.dataset.value / output.stem
         summary = train_qwen_adapter(
             codec=codec,
             sequences=[row.event_ids for row in dataset.train],
@@ -110,11 +122,23 @@ def calibrate(
     prepared: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
     artifact_root: Annotated[Path, typer.Option()],
     version: Annotated[str, typer.Option()] = "v1",
+    adapter: Annotated[Path | None, typer.Option(exists=True, file_okay=False)] = None,
+    storage_root: Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Fit calibrated hybrid scoring and save an immutable environment artifact."""
+    configure_local_storage(storage_root)
     dataset = PreparedDataset.load(prepared)
+    transformer_scorer = (
+        QwenAdapterScorer.from_pretrained(adapter, storage_root=storage_root)
+        if adapter is not None
+        else None
+    )
     artifact = train_hybrid_artifact(
-        dataset, version=version, artifact_root=artifact_root
+        dataset,
+        version=version,
+        artifact_root=artifact_root,
+        transformer_scorer=transformer_scorer,
+        adapter_path=adapter,
     )
     typer.echo(
         f"Saved {artifact.metadata.environment.value}/{version} "
@@ -129,12 +153,27 @@ def evaluate(
     environment: Annotated[DatasetName, typer.Option()],
     version: Annotated[str, typer.Option()],
     output: Annotated[Path, typer.Option()],
+    storage_root: Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Evaluate a locked artifact on the prepared temporal test partition."""
+    configure_local_storage(storage_root)
     dataset = PreparedDataset.load(prepared)
     artifact = ArtifactStore(artifact_root).load(environment, version)
+    transformer_signals = None
+    if artifact.adapter_path is not None:
+        scorer = QwenAdapterScorer.from_pretrained(
+            artifact.adapter_path, storage_root=storage_root
+        )
+        transformer_signals = transformer_signal_matrix(
+            scorer.score(list(dataset.test))
+        )
     scores = np.asarray(
-        [item.anomaly_score for item in artifact.detector.score(list(dataset.test))]
+        [
+            item.anomaly_score
+            for item in artifact.detector.score(
+                list(dataset.test), transformer_signals=transformer_signals
+            )
+        ]
     )
     labels = np.asarray([item.label for item in dataset.test])
     report = classification_report(
@@ -150,8 +189,10 @@ def run_all(
     workspace: Annotated[Path, typer.Option()] = Path("."),
     sample_count: Annotated[int, typer.Option(min=20)] = 240,
     version: Annotated[str, typer.Option()] = "sample-v1",
+    storage_root: Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Run a deterministic local smoke workflow without claiming public benchmarks."""
+    configure_local_storage(storage_root)
     prepared = prepare_events(sample_events(dataset, count=sample_count), dataset=dataset)
     prepared_path = workspace / "prepared" / f"{dataset.value}.json"
     prepared.save(prepared_path)
@@ -205,6 +246,7 @@ def serve(
     version: Annotated[list[str], typer.Option()],
     host: Annotated[str, typer.Option()] = "127.0.0.1",
     port: Annotated[int, typer.Option(min=1, max=65535)] = 8000,
+    storage_root: Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Serve one or more isolated model artifacts with FastAPI."""
     if len(environment) != len(version):
@@ -213,14 +255,47 @@ def serve(
 
     from logsentinel.api import ModelRegistry, create_app
 
+    configure_local_storage(storage_root)
     store = ArtifactStore(artifact_root)
     registry = ModelRegistry(
         [
             store.load(selected, release)
             for selected, release in zip(environment, version, strict=True)
-        ]
+        ],
+        storage_root=storage_root,
     )
     uvicorn.run(create_app(registry), host=host, port=port)
+
+
+@app.command("storage-status")
+def storage_status(
+    storage_root: Annotated[Path | None, typer.Option()] = None,
+) -> None:
+    """Show where models, datasets, adapters and package downloads are stored."""
+    layout = configure_local_storage(storage_root)
+    typer.echo(
+        json.dumps(
+            {
+                "root": str(layout.root),
+                "adapters": str(layout.adapters),
+                "artifacts": str(layout.artifacts),
+                "datasets": str(layout.datasets),
+                "cache_environment": layout.environment,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
+@app.command("download-model")
+def download_model(
+    model_id: Annotated[str, typer.Option()] = "Qwen/Qwen2.5-1.5B",
+    storage_root: Annotated[Path | None, typer.Option()] = None,
+) -> None:
+    """Download the shared base checkpoint into the configured local SSD cache."""
+    path = prefetch_huggingface_model(model_id, storage_root)
+    typer.echo(f"Model cached at {path}")
 
 
 @app.command()

@@ -58,6 +58,43 @@ def test_hybrid_detector_returns_interpretable_component_scores() -> None:
     assert detector.expected_next(("E1",), top_k=2)[0] in {"E2", "E3"}
 
 
+def test_hybrid_detector_fuses_transformer_next_event_signals() -> None:
+    train, validation = train_and_validation()
+    train_signals = np.asarray(
+        [[0.1, 1.0, 0.0, 0.2] for _ in train], dtype=float
+    )
+    validation_signals = np.asarray(
+        [
+            [0.1, 1.0, 0.0, 0.2],
+            [0.2, 1.0, 0.0, 0.3],
+            [4.0, 7.0, 1.0, 2.0],
+            [5.0, 8.0, 1.0, 2.2],
+        ],
+        dtype=float,
+    )
+    detector = HybridDetector(random_state=7).fit(
+        train,
+        validation,
+        train_transformer_signals=train_signals,
+        validation_transformer_signals=validation_signals,
+    )
+
+    results = detector.score(validation, transformer_signals=validation_signals)
+
+    assert set(results[0].component_scores) == {
+        "rarity",
+        "pca",
+        "isolation_forest",
+        "qwen_nll",
+        "qwen_rank",
+        "qwen_top_k_miss",
+        "qwen_entropy",
+    }
+    assert detector.uses_transformer is True
+    with pytest.raises(ValueError, match="transformer signals are required"):
+        detector.score(validation)
+
+
 def test_select_f1_threshold_is_deterministic() -> None:
     labels = np.array([0, 0, 1, 1])
     scores = np.array([0.1, 0.4, 0.6, 0.9])
@@ -122,3 +159,101 @@ def test_artifact_lookup_cannot_cross_environment(tmp_path: Path) -> None:
     store.save(artifact)
     with pytest.raises(FileNotFoundError):
         store.load(DatasetName.BGL, "same-version")
+
+
+def test_transformer_artifact_snapshots_adapter_inside_environment_package(
+    tmp_path: Path,
+) -> None:
+    train, validation = train_and_validation()
+    adapter_source = tmp_path / "trained-adapter"
+    adapter_source.mkdir()
+    (adapter_source / "adapter_model.safetensors").write_bytes(b"adapter-weights")
+    (adapter_source / "logsentinel_adapter.json").write_text(
+        '{"schema_version": 1, "base_model": "Qwen/Qwen2.5-1.5B", '
+        '"codec": {"event_ids": ["E1"], "tokens": ["<EVT_000000>"]}}',
+        encoding="utf-8",
+    )
+    signals_train = np.ones((len(train), 4), dtype=float)
+    signals_validation = np.asarray(
+        [[1, 1, 0, 1], [1, 1, 0, 1], [5, 5, 1, 2], [6, 6, 1, 2]],
+        dtype=float,
+    )
+    detector = HybridDetector().fit(
+        train,
+        validation,
+        train_transformer_signals=signals_train,
+        validation_transformer_signals=signals_validation,
+    )
+    artifact = EnvironmentArtifact(
+        metadata=ArtifactMetadata(
+            environment=DatasetName.HDFS,
+            version="with-qwen",
+            threshold=detector.threshold or 0.5,
+            split_id="adapter-split",
+            model_kind="hybrid-transformer",
+            adapter_version="adapter-v1",
+        ),
+        detector=detector,
+        adapter_path=adapter_source,
+    )
+
+    store = ArtifactStore(tmp_path / "artifacts")
+    target = store.save(artifact)
+    loaded = store.load(DatasetName.HDFS, "with-qwen")
+
+    assert loaded.adapter_path == target / "adapter"
+    assert (loaded.adapter_path / "adapter_model.safetensors").read_bytes() == b"adapter-weights"
+    assert loaded.adapter_path.is_relative_to(tmp_path / "artifacts")
+
+
+def test_transformer_artifact_detects_adapter_corruption(tmp_path: Path) -> None:
+    train, validation = train_and_validation()
+    adapter_source = tmp_path / "adapter"
+    adapter_source.mkdir()
+    (adapter_source / "logsentinel_adapter.json").write_text("{}", encoding="utf-8")
+    artifact = EnvironmentArtifact(
+        metadata=ArtifactMetadata(
+            environment=DatasetName.BGL,
+            version="qwen-v1",
+            threshold=0.5,
+            split_id="split",
+            model_kind="hybrid-transformer",
+            adapter_version="adapter-v1",
+        ),
+        detector=HybridDetector().fit(
+            train,
+            validation,
+            train_transformer_signals=np.ones((len(train), 4)),
+            validation_transformer_signals=np.ones((len(validation), 4)),
+        ),
+        adapter_path=adapter_source,
+    )
+    store = ArtifactStore(tmp_path / "artifacts")
+    target = store.save(artifact)
+    (target / "adapter" / "logsentinel_adapter.json").write_text(
+        "corrupted", encoding="utf-8"
+    )
+
+    with pytest.raises(ArtifactIntegrityError, match="checksum"):
+        store.load(DatasetName.BGL, "qwen-v1")
+
+
+def test_artifact_rejects_adapter_detector_mode_mismatch(tmp_path: Path) -> None:
+    train, validation = train_and_validation()
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    artifact = EnvironmentArtifact(
+        metadata=ArtifactMetadata(
+            environment=DatasetName.HDFS,
+            version="mismatch",
+            threshold=0.5,
+            split_id="split",
+            model_kind="hybrid-transformer",
+            adapter_version="v1",
+        ),
+        detector=HybridDetector().fit(train, validation),
+        adapter_path=adapter,
+    )
+
+    with pytest.raises(ValueError, match="detector mode"):
+        ArtifactStore(tmp_path / "artifacts").save(artifact)

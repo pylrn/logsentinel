@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,6 +13,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from logsentinel.detection import EncodedSequence
+from logsentinel.storage import configure_local_storage
 
 
 @dataclass(frozen=True)
@@ -168,6 +171,172 @@ class NextEventStatistics:
     expected_indices: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class TransformerSequenceScore:
+    negative_log_likelihood: float
+    mean_rank: float
+    top_k_miss_rate: float
+    entropy: float
+    expected_event_ids: tuple[str, ...]
+
+    def feature_vector(self) -> tuple[float, float, float, float]:
+        return (
+            self.negative_log_likelihood,
+            self.mean_rank,
+            self.top_k_miss_rate,
+            self.entropy,
+        )
+
+
+@dataclass(frozen=True)
+class QwenInferenceDependencies:
+    tokenizer_loader: Callable[..., Any]
+    model_loader: Callable[..., Any]
+    adapter_loader: Callable[..., Any]
+
+
+class QwenAdapterScorer:
+    """Teacher-forced next-event inference over a fitted event-token vocabulary."""
+
+    def __init__(
+        self,
+        *,
+        codec: EventTokenCodec,
+        model: Any,
+        tokenizer: Any,
+        top_k: int = 5,
+    ) -> None:
+        if top_k <= 0:
+            raise ValueError("top_k must be positive")
+        self.codec = codec
+        self.model = model
+        self.tokenizer = tokenizer
+        self.top_k = top_k
+        self._event_tokens = (*codec.tokens, "<EVT_UNK>")
+        self._candidate_token_ids = tuple(
+            int(tokenizer.convert_tokens_to_ids(token)) for token in self._event_tokens
+        )
+        self.model.eval()
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        adapter_path: Path | str,
+        *,
+        storage_root: Path | str | None = None,
+        device: str | None = None,
+        top_k: int = 5,
+        dependencies: QwenInferenceDependencies | None = None,
+    ) -> QwenAdapterScorer:
+        adapter = Path(adapter_path).expanduser().resolve()
+        try:
+            payload = json.loads(
+                (adapter / "logsentinel_adapter.json").read_text(encoding="utf-8")
+            )
+            codec_payload = payload["codec"]
+            codec = EventTokenCodec(
+                event_ids=tuple(str(item) for item in codec_payload["event_ids"]),
+                tokens=tuple(str(item) for item in codec_payload["tokens"]),
+            )
+            base_model = str(payload["base_model"])
+        except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("adapter metadata is missing or invalid") from exc
+        if len(codec.event_ids) != len(codec.tokens) or not codec.event_ids:
+            raise RuntimeError("adapter event-token vocabulary is invalid")
+        layout = configure_local_storage(storage_root)
+        dependencies = dependencies or _load_qwen_inference_dependencies()
+        selected_device = device or _best_inference_device()
+        model_kwargs: dict[str, Any] = {
+            "cache_dir": layout.environment["HF_HUB_CACHE"],
+            "low_cpu_mem_usage": True,
+        }
+        if selected_device == "cuda":
+            model_kwargs.update(device_map="auto", torch_dtype=torch.bfloat16)
+        elif selected_device == "mps":
+            model_kwargs["torch_dtype"] = torch.float16
+        else:
+            model_kwargs["torch_dtype"] = torch.float32
+        tokenizer = dependencies.tokenizer_loader(
+            str(adapter), local_files_only=True
+        )
+        base = dependencies.model_loader(base_model, **model_kwargs)
+        if callable(getattr(base, "resize_token_embeddings", None)):
+            base.resize_token_embeddings(len(tokenizer))
+        model = dependencies.adapter_loader(
+            base, str(adapter), local_files_only=True
+        )
+        if selected_device != "cuda" and callable(getattr(model, "to", None)):
+            model = model.to(selected_device)
+        return cls(
+            codec=codec,
+            model=model,
+            tokenizer=tokenizer,
+            top_k=top_k,
+        )
+
+    def score(self, sequences: list[EncodedSequence]) -> list[TransformerSequenceScore]:
+        return [self._score_one(row.event_ids) for row in sequences]
+
+    def _score_one(self, event_ids: tuple[str, ...]) -> TransformerSequenceScore:
+        if not event_ids:
+            return TransformerSequenceScore(0.0, 0.0, 0.0, 0.0, ())
+        encoded = self.tokenizer(
+            self.codec.serialize(event_ids),
+            add_special_tokens=False,
+            return_tensors="pt",
+        )
+        device = getattr(self.model, "device", torch.device("cpu"))
+        model_inputs = {
+            name: value.to(device) if isinstance(value, torch.Tensor) else value
+            for name, value in encoded.items()
+        }
+        with torch.inference_mode():
+            logits = self.model(**model_inputs).logits[0].detach().float().cpu().numpy()
+        candidate_logits = logits[:, self._candidate_token_ids]
+        mapping = {event: index for index, event in enumerate(self.codec.event_ids)}
+        unknown_index = len(self.codec.event_ids)
+        transition_stats = []
+        for position in range(1, len(event_ids)):
+            true_index = mapping.get(event_ids[position], unknown_index)
+            transition_stats.append(
+                next_event_statistics(
+                    candidate_logits[position - 1],
+                    true_index=true_index,
+                    top_k=self.top_k,
+                )
+            )
+        latest = next_event_statistics(
+            candidate_logits[len(event_ids) - 1],
+            true_index=unknown_index,
+            top_k=self.top_k,
+        )
+        expected = tuple(
+            self.codec.event_ids[index] if index < len(self.codec.event_ids) else "<UNK>"
+            for index in latest.expected_indices
+        )
+        if not transition_stats:
+            return TransformerSequenceScore(0.0, 0.0, 0.0, 0.0, expected)
+        return TransformerSequenceScore(
+            negative_log_likelihood=float(
+                np.mean([item.negative_log_likelihood for item in transition_stats])
+            ),
+            mean_rank=float(np.mean([item.rank for item in transition_stats])),
+            top_k_miss_rate=float(
+                np.mean([item.top_k_miss for item in transition_stats])
+            ),
+            entropy=float(np.mean([item.entropy for item in transition_stats])),
+            expected_event_ids=expected,
+        )
+
+
+def transformer_signal_matrix(
+    scores: list[TransformerSequenceScore],
+) -> np.ndarray:
+    if not scores:
+        return np.empty((0, 4), dtype=float)
+    return np.asarray([item.feature_vector() for item in scores], dtype=float)
+
+
 def next_event_statistics(
     logits: np.ndarray, *, true_index: int, top_k: int = 5
 ) -> NextEventStatistics:
@@ -293,6 +462,29 @@ def _load_qlora_dependencies() -> QLoRADependencies:
     )
 
 
+def _load_qwen_inference_dependencies() -> QwenInferenceDependencies:
+    try:
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except ImportError as exc:
+        raise RuntimeError(
+            "Qwen adapter inference requires the 'ml' extra: pip install 'logsentinel[ml]'"
+        ) from exc
+    return QwenInferenceDependencies(
+        tokenizer_loader=AutoTokenizer.from_pretrained,
+        model_loader=AutoModelForCausalLM.from_pretrained,
+        adapter_loader=PeftModel.from_pretrained,
+    )
+
+
+def _best_inference_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 class CausalEventDataset(Dataset):
     def __init__(
         self,
@@ -369,8 +561,6 @@ def train_qwen_adapter(
             ) from exc
         trainer_factory = trainer_factory or Trainer
         training_arguments_factory = training_arguments_factory or TrainingArguments
-    from pathlib import Path
-
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
     dataset = CausalEventDataset(
@@ -394,6 +584,22 @@ def train_qwen_adapter(
     trainer.train()
     model.save_pretrained(target)
     tokenizer.save_pretrained(target)
+    (target / "logsentinel_adapter.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "base_model": settings.base_model,
+                "settings": asdict(settings),
+                "codec": {
+                    "event_ids": list(codec.event_ids),
+                    "tokens": list(codec.tokens),
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
     return TransformerTrainingSummary(
         output_dir=str(target),
         training_sequences=len(sequences),

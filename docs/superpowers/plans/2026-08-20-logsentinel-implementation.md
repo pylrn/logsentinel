@@ -40,3 +40,11 @@
 
 - [x] Run unit, integration, API, adversarial, lint, sample-pipeline, and packaging checks.
 - [x] Document dataset provenance, full-data commands, limitations, security posture, model card, dataset card, and honest benchmark-report behavior.
+
+### Task 7: Free adapter inference integration
+
+- [x] Add teacher-forced Qwen adapter scoring for next-event NLL, mean rank, top-k miss rate, entropy, and expected events.
+- [x] Fuse transformer signals into calibration while preserving a clearly identified statistical-only fallback.
+- [x] Snapshot and checksum environment-specific adapters inside immutable artifacts and lazily load them in the API.
+- [x] Route Hugging Face, dataset, Transformers, Torch, pip, adapter, and artifact storage to a selectable SSD root.
+- [x] Add model-prefetch, transformer calibration/evaluation/serving CLI paths and free local/Colab documentation.

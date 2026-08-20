@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 import logsentinel.cli as cli_module
 from logsentinel.cli import app
-from logsentinel.neural import TransformerTrainingSummary
+from logsentinel.neural import TransformerSequenceScore, TransformerTrainingSummary
 
 runner = CliRunner()
 
@@ -24,6 +24,8 @@ def test_cli_exposes_approved_workflow_commands() -> None:
         "run-all",
         "serve",
         "dashboard",
+        "storage-status",
+        "download-model",
     ):
         assert command in result.stdout
 
@@ -166,3 +168,85 @@ def test_train_transformer_execute_calls_adapter_trainer(tmp_path: Path, monkeyp
     assert result.exit_code == 0, result.stdout
     assert called["output_dir"] == adapter
     assert json.loads(output.read_text(encoding="utf-8"))["status"] == "trained"
+
+
+def test_storage_status_reports_all_caches_under_external_root(tmp_path: Path) -> None:
+    storage = tmp_path / "ssd"
+    result = runner.invoke(
+        app, ["storage-status", "--storage-root", str(storage)]
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["root"] == str(storage.resolve())
+    assert all(
+        Path(value).is_relative_to(storage)
+        for value in payload["cache_environment"].values()
+        if value.startswith("/")
+    )
+
+
+def test_calibrate_with_adapter_builds_transformer_hybrid(
+    tmp_path: Path, monkeypatch
+) -> None:
+    prepared = tmp_path / "prepared.json"
+    prep = runner.invoke(
+        app,
+        [
+            "prepare",
+            "--dataset",
+            "hdfs",
+            "--sample",
+            "--limit",
+            "180",
+            "--output",
+            str(prepared),
+            "--storage-root",
+            str(tmp_path / "storage"),
+        ],
+    )
+    assert prep.exit_code == 0, prep.stdout
+    adapter = tmp_path / "storage" / "adapters" / "hdfs-v1"
+    adapter.mkdir(parents=True)
+    (adapter / "logsentinel_adapter.json").write_text("{}", encoding="utf-8")
+
+    class FakeScorer:
+        def score(self, sequences):
+            return [
+                TransformerSequenceScore(
+                    negative_log_likelihood=3.0 if row.label else 0.2,
+                    mean_rank=4.0 if row.label else 1.0,
+                    top_k_miss_rate=float(row.label),
+                    entropy=2.0 if row.label else 0.3,
+                    expected_event_ids=(row.event_ids[0],),
+                )
+                for row in sequences
+            ]
+
+    monkeypatch.setattr(
+        cli_module.QwenAdapterScorer,
+        "from_pretrained",
+        lambda *args, **kwargs: FakeScorer(),
+    )
+    artifacts = tmp_path / "storage" / "artifacts"
+    result = runner.invoke(
+        app,
+        [
+            "calibrate",
+            "--prepared",
+            str(prepared),
+            "--artifact-root",
+            str(artifacts),
+            "--version",
+            "qwen-v1",
+            "--adapter",
+            str(adapter),
+            "--storage-root",
+            str(tmp_path / "storage"),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    metadata = json.loads(
+        (artifacts / "hdfs" / "qwen-v1" / "metadata.json").read_text(encoding="utf-8")
+    )
+    assert metadata["model_kind"] == "hybrid-transformer"
+    assert (artifacts / "hdfs" / "qwen-v1" / "adapter").is_dir()

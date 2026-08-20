@@ -14,6 +14,8 @@ from logsentinel.neural import (
     EventTokenCodec,
     QLoRADependencies,
     QLoRASettings,
+    QwenAdapterScorer,
+    QwenInferenceDependencies,
     make_next_event_examples,
     next_event_statistics,
     prepare_qwen_qlora,
@@ -197,5 +199,155 @@ def test_train_qwen_adapter_executes_trainer_and_saves_adapter(tmp_path: Path) -
     assert calls["model_saved"] == str(tmp_path)
     assert calls["tokenizer_saved"] == str(tmp_path)
     assert summary.training_sequences == 2
+    assert (tmp_path / "logsentinel_adapter.json").is_file()
     dataset = calls["trainer_kwargs"]["train_dataset"]
     assert dataset[0]["labels"].tolist() == [1, 2, -100, -100]
+
+
+def test_qwen_adapter_scorer_returns_next_event_signals_and_expected_events() -> None:
+    codec = EventTokenCodec.fit([("E1", "E2", "E3")])
+    token_ids = {
+        codec.tokens[0]: 1,
+        codec.tokens[1]: 2,
+        codec.tokens[2]: 3,
+        "<EVT_UNK>": 4,
+        "<SEQ_END>": 5,
+    }
+
+    class FakeTokenizer:
+        def __len__(self):
+            return 99
+
+        def convert_tokens_to_ids(self, token):
+            return token_ids[token]
+
+        def __call__(self, text, **kwargs):
+            values = [token_ids[token] for token in text.split()]
+            return {
+                "input_ids": torch.tensor([values]),
+                "attention_mask": torch.ones((1, len(values)), dtype=torch.long),
+            }
+
+    class FakeModel:
+        device = torch.device("cpu")
+
+        def eval(self):
+            return self
+
+        def __call__(self, **kwargs):
+            length = kwargs["input_ids"].shape[1]
+            logits = torch.zeros((1, length, 8), dtype=torch.float32)
+            logits[0, 0, 2] = 8  # E1 -> E2
+            logits[0, 1, 3] = 8  # E2 -> E3
+            logits[0, 2, 1] = 8  # E3 -> E1 next
+            return type("Output", (), {"logits": logits})()
+
+    scorer = QwenAdapterScorer(
+        codec=codec,
+        model=FakeModel(),
+        tokenizer=FakeTokenizer(),
+        top_k=2,
+    )
+    result = scorer.score([_encoded(20, ("E1", "E2", "E3"))])[0]
+
+    assert result.negative_log_likelihood < 0.01
+    assert result.mean_rank == 1
+    assert result.top_k_miss_rate == 0
+    assert result.expected_event_ids[0] == "E1"
+
+
+def test_qwen_adapter_scorer_maps_unknown_events_without_mutating_codec() -> None:
+    codec = EventTokenCodec.fit([("E1", "E2")])
+    token_ids = {
+        codec.tokens[0]: 1,
+        codec.tokens[1]: 2,
+        "<EVT_UNK>": 3,
+        "<SEQ_END>": 4,
+    }
+
+    class FakeTokenizer:
+        def convert_tokens_to_ids(self, token):
+            return token_ids[token]
+
+        def __call__(self, text, **kwargs):
+            values = [token_ids[token] for token in text.split()]
+            return {"input_ids": torch.tensor([values])}
+
+    class FakeModel:
+        device = torch.device("cpu")
+
+        def eval(self):
+            return self
+
+        def __call__(self, **kwargs):
+            length = kwargs["input_ids"].shape[1]
+            return type("Output", (), {"logits": torch.zeros((1, length, 6))})()
+
+    scorer = QwenAdapterScorer(codec=codec, model=FakeModel(), tokenizer=FakeTokenizer())
+    result = scorer.score([_encoded(21, ("E1", "NEVER_SEEN"))])[0]
+
+    assert np.isfinite(result.negative_log_likelihood)
+    assert codec.event_ids == ("E1", "E2")
+
+
+def test_qwen_adapter_scorer_loads_base_from_ssd_cache_and_local_adapter(
+    tmp_path: Path,
+) -> None:
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    (adapter / "logsentinel_adapter.json").write_text(
+        '{"schema_version": 1, "base_model": "Qwen/Qwen2.5-1.5B", '
+        '"codec": {"event_ids": ["E1", "E2"], '
+        '"tokens": ["<EVT_000000>", "<EVT_000001>"]}}',
+        encoding="utf-8",
+    )
+    calls: dict[str, object] = {}
+
+    class FakeTokenizer:
+        def __len__(self):
+            return 99
+
+        def convert_tokens_to_ids(self, token):
+            return {"<EVT_000000>": 1, "<EVT_000001>": 2, "<EVT_UNK>": 3}[token]
+
+    class FakeModel:
+        def resize_token_embeddings(self, size):
+            calls["resize"] = size
+
+        def to(self, device):
+            calls["device"] = device
+            return self
+
+        def eval(self):
+            return self
+
+    def tokenizer_loader(path, **kwargs):
+        calls["tokenizer"] = (path, kwargs)
+        return FakeTokenizer()
+
+    def model_loader(model_id, **kwargs):
+        calls["base"] = (model_id, kwargs)
+        return FakeModel()
+
+    def adapter_loader(model, path, **kwargs):
+        calls["adapter"] = (path, kwargs)
+        return model
+
+    storage = tmp_path / "external-ssd"
+    scorer = QwenAdapterScorer.from_pretrained(
+        adapter,
+        storage_root=storage,
+        device="cpu",
+        dependencies=QwenInferenceDependencies(
+            tokenizer_loader=tokenizer_loader,
+            model_loader=model_loader,
+            adapter_loader=adapter_loader,
+        ),
+    )
+
+    assert scorer.codec.event_ids == ("E1", "E2")
+    assert calls["tokenizer"][0] == str(adapter)
+    assert calls["adapter"][0] == str(adapter)
+    assert Path(calls["base"][1]["cache_dir"]).is_relative_to(storage)
+    assert calls["resize"] == 99
+    assert calls["device"] == "cpu"

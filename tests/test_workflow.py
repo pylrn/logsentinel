@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from logsentinel.neural import TransformerSequenceScore
 from logsentinel.schemas import DatasetName, LogEvent
 from logsentinel.sequencing import build_bgl_windows, build_hdfs_sequences
 from logsentinel.workflow import (
@@ -63,3 +64,48 @@ def test_sample_workflow_trains_versioned_artifact(tmp_path: Path) -> None:
     assert artifact.metadata.environment is DatasetName.HDFS
     assert artifact.metadata.version == "sample-v1"
     assert (tmp_path / "hdfs" / "sample-v1" / "integrity.json").is_file()
+
+
+def test_workflow_calibrates_and_packages_transformer_hybrid(tmp_path: Path) -> None:
+    prepared = prepare_events(
+        sample_events(DatasetName.HDFS, count=180), dataset=DatasetName.HDFS
+    )
+    adapter = tmp_path / "adapter-source"
+    adapter.mkdir()
+    (adapter / "logsentinel_adapter.json").write_text("{}", encoding="utf-8")
+
+    class FakeScorer:
+        def score(self, sequences):
+            return [
+                TransformerSequenceScore(
+                    negative_log_likelihood=4.0 if row.label else 0.2,
+                    mean_rank=5.0 if row.label else 1.0,
+                    top_k_miss_rate=float(row.label),
+                    entropy=2.0 if row.label else 0.3,
+                    expected_event_ids=(row.event_ids[0],),
+                )
+                for row in sequences
+            ]
+
+    artifact = train_hybrid_artifact(
+        prepared,
+        version="qwen-v1",
+        artifact_root=tmp_path / "artifacts",
+        transformer_scorer=FakeScorer(),
+        adapter_path=adapter,
+    )
+
+    assert artifact.detector.uses_transformer is True
+    assert artifact.metadata.model_kind == "hybrid-transformer"
+    assert artifact.metadata.adapter_version == "adapter-source"
+    assert artifact.adapter_path == (
+        tmp_path / "artifacts" / "hdfs" / "qwen-v1" / "adapter"
+    )
+    assert (
+        tmp_path
+        / "artifacts"
+        / "hdfs"
+        / "qwen-v1"
+        / "adapter"
+        / "logsentinel_adapter.json"
+    ).is_file()

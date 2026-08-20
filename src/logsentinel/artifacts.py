@@ -47,6 +47,7 @@ class EnvironmentArtifact:
     metadata: ArtifactMetadata
     detector: HybridDetector
     parser: DeterministicTemplateMiner = field(default_factory=DeterministicTemplateMiner)
+    adapter_path: Path | None = None
 
 
 class ArtifactStore:
@@ -54,6 +55,11 @@ class ArtifactStore:
         self.root = Path(root)
 
     def save(self, artifact: EnvironmentArtifact) -> Path:
+        transformer_mode = artifact.metadata.model_kind == "hybrid-transformer"
+        if transformer_mode != artifact.detector.uses_transformer:
+            raise ValueError("artifact metadata and detector mode do not match")
+        if transformer_mode != (artifact.adapter_path is not None):
+            raise ValueError("artifact metadata and adapter presence do not match")
         target = self._path(artifact.metadata.environment, artifact.metadata.version)
         if target.exists():
             raise FileExistsError(f"immutable artifact already exists: {target}")
@@ -71,10 +77,17 @@ class ArtifactStore:
                 json.dumps(artifact.parser.to_dict(), indent=2, sort_keys=True),
                 encoding="utf-8",
             )
+            if artifact.adapter_path is not None:
+                adapter_source = Path(artifact.adapter_path)
+                if not adapter_source.is_dir():
+                    raise FileNotFoundError(f"adapter directory not found: {adapter_source}")
+                shutil.copytree(adapter_source, temporary / "adapter")
+            elif artifact.metadata.model_kind == "hybrid-transformer":
+                raise ValueError("hybrid-transformer artifacts require an adapter directory")
             integrity = {
-                "metadata.json": _sha256(metadata_path),
-                "model.joblib": _sha256(model_path),
-                "parser.json": _sha256(parser_path),
+                str(path.relative_to(temporary)): _sha256(path)
+                for path in sorted(temporary.rglob("*"))
+                if path.is_file()
             }
             (temporary / "integrity.json").write_text(
                 json.dumps(integrity, indent=2, sort_keys=True), encoding="utf-8"
@@ -95,8 +108,13 @@ class ArtifactStore:
         except (OSError, json.JSONDecodeError) as exc:
             raise ArtifactIntegrityError("artifact integrity manifest is unreadable") from exc
         for filename in ("metadata.json", "model.joblib", "parser.json"):
-            path = target / filename
-            expected = integrity.get(filename)
+            if filename not in integrity:
+                raise ArtifactIntegrityError(f"checksum mismatch for {filename}")
+        for filename, expected in integrity.items():
+            relative = Path(filename)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ArtifactIntegrityError("artifact integrity manifest contains unsafe paths")
+            path = target / relative
             if not expected or not path.is_file() or _sha256(path) != expected:
                 raise ArtifactIntegrityError(f"checksum mismatch for {filename}")
         metadata = ArtifactMetadata.model_validate_json(
@@ -110,12 +128,22 @@ class ArtifactStore:
             raise ArtifactIntegrityError("trusted model artifact could not be loaded") from exc
         if not isinstance(detector, HybridDetector):
             raise ArtifactIntegrityError("artifact contains an unexpected model type")
+        if (metadata.model_kind == "hybrid-transformer") != detector.uses_transformer:
+            raise ArtifactIntegrityError("artifact metadata and detector mode do not match")
         try:
             parser_state = json.loads((target / "parser.json").read_text(encoding="utf-8"))
             parser = DeterministicTemplateMiner.from_dict(parser_state)
         except (OSError, json.JSONDecodeError, TypeError) as exc:
             raise ArtifactIntegrityError("parser artifact could not be loaded") from exc
-        return EnvironmentArtifact(metadata=metadata, detector=detector, parser=parser)
+        adapter_path = target / "adapter"
+        if metadata.model_kind == "hybrid-transformer" and not adapter_path.is_dir():
+            raise ArtifactIntegrityError("transformer artifact is missing its adapter")
+        return EnvironmentArtifact(
+            metadata=metadata,
+            detector=detector,
+            parser=parser,
+            adapter_path=adapter_path if adapter_path.is_dir() else None,
+        )
 
     def _path(self, environment: DatasetName, version: str) -> Path:
         safe = ArtifactMetadata.safe_identifier(version)

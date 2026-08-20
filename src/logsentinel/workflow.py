@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from logsentinel.artifacts import (
     ArtifactMetadata,
@@ -11,6 +12,7 @@ from logsentinel.artifacts import (
     EnvironmentArtifact,
 )
 from logsentinel.detection import EncodedSequence
+from logsentinel.neural import transformer_signal_matrix
 from logsentinel.parsing import DeterministicTemplateMiner
 from logsentinel.pipeline import HybridDetector
 from logsentinel.privacy import Redactor, stable_hash
@@ -108,22 +110,44 @@ def train_hybrid_artifact(
     version: str,
     artifact_root: Path | str,
     random_state: int = 42,
+    transformer_scorer: Any | None = None,
+    adapter_path: Path | str | None = None,
 ) -> EnvironmentArtifact:
+    if (transformer_scorer is None) != (adapter_path is None):
+        raise ValueError("transformer scorer and adapter path must be provided together")
+    train_signals = validation_signals = None
+    if transformer_scorer is not None:
+        train_signals = transformer_signal_matrix(
+            transformer_scorer.score(list(prepared.train))
+        )
+        validation_signals = transformer_signal_matrix(
+            transformer_scorer.score(list(prepared.validation))
+        )
     detector = HybridDetector(random_state=random_state).fit(
-        list(prepared.train), list(prepared.validation)
+        list(prepared.train),
+        list(prepared.validation),
+        train_transformer_signals=train_signals,
+        validation_transformer_signals=validation_signals,
     )
+    selected_adapter = Path(adapter_path).resolve() if adapter_path is not None else None
     artifact = EnvironmentArtifact(
         metadata=ArtifactMetadata(
             environment=prepared.dataset,
             version=version,
             threshold=detector.threshold or 0.0,
             split_id=prepared.split_id,
+            model_kind=(
+                "hybrid-transformer" if transformer_scorer is not None else "hybrid-statistical"
+            ),
+            adapter_version=selected_adapter.name if selected_adapter is not None else None,
         ),
         detector=detector,
         parser=prepared.parser,
+        adapter_path=selected_adapter,
     )
-    ArtifactStore(artifact_root).save(artifact)
-    return artifact
+    store = ArtifactStore(artifact_root)
+    store.save(artifact)
+    return store.load(prepared.dataset, version)
 
 
 def sample_events(dataset: DatasetName, *, count: int = 240) -> list[LogEvent]:

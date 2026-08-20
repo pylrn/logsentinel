@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 from threading import RLock
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from logsentinel.artifacts import EnvironmentArtifact
 from logsentinel.detection import EncodedSequence
+from logsentinel.neural import QwenAdapterScorer, transformer_signal_matrix
 from logsentinel.privacy import Redactor, stable_hash
 from logsentinel.schemas import DatasetName
 
@@ -73,8 +76,21 @@ class FeedbackRequest(BaseModel):
 
 
 class ModelRegistry:
-    def __init__(self, artifacts: list[EnvironmentArtifact]) -> None:
+    def __init__(
+        self,
+        artifacts: list[EnvironmentArtifact],
+        *,
+        transformer_scorer_factory: Callable[[Path], Any] | None = None,
+        storage_root: Path | str | None = None,
+    ) -> None:
         self._artifacts = {item.metadata.environment: item for item in artifacts}
+        self._scorers: dict[DatasetName, Any] = {}
+        self._lock = RLock()
+        self._scorer_factory = transformer_scorer_factory or (
+            lambda path: QwenAdapterScorer.from_pretrained(
+                path, storage_root=storage_root
+            )
+        )
 
     def get(self, environment: DatasetName) -> EnvironmentArtifact:
         try:
@@ -84,6 +100,19 @@ class ModelRegistry:
 
     def __len__(self) -> int:
         return len(self._artifacts)
+
+    def transformer_scorer(self, environment: DatasetName) -> Any | None:
+        artifact = self.get(environment)
+        if artifact.adapter_path is None:
+            return None
+        with self._lock:
+            if environment not in self._scorers:
+                self._scorers[environment] = self._scorer_factory(artifact.adapter_path)
+            return self._scorers[environment]
+
+    def adapter_loaded(self, environment: DatasetName) -> bool:
+        with self._lock:
+            return DatasetName(environment) in self._scorers
 
 
 class ScoringService:
@@ -121,8 +150,23 @@ class ScoringService:
             started_at=ordered[0].timestamp,
             ended_at=ordered[-1].timestamp,
         )
-        score = artifact.detector.score([encoded])[0]
-        expected_ids = artifact.detector.expected_next(event_ids, top_k=3)
+        transformer_scorer = self.registry.transformer_scorer(request.environment)
+        transformer_scores = (
+            transformer_scorer.score([encoded]) if transformer_scorer is not None else None
+        )
+        transformer_signals = (
+            transformer_signal_matrix(transformer_scores)
+            if transformer_scores is not None
+            else None
+        )
+        score = artifact.detector.score(
+            [encoded], transformer_signals=transformer_signals
+        )[0]
+        expected_ids = (
+            transformer_scores[0].expected_event_ids
+            if transformer_scores is not None
+            else artifact.detector.expected_next(event_ids, top_k=3)
+        )
         expected_templates = [
             artifact.parser.template_for_event(event_id) or event_id
             for event_id in expected_ids
@@ -195,6 +239,10 @@ def create_app(registry: ModelRegistry) -> FastAPI:
             "threshold": artifact.metadata.threshold,
             "split_id": artifact.metadata.split_id,
             "model_kind": artifact.metadata.model_kind,
+            "inference_backend": (
+                "qwen-adapter" if artifact.adapter_path is not None else "statistical"
+            ),
+            "adapter_loaded": registry.adapter_loaded(environment),
             "status": "ready",
         }
 
