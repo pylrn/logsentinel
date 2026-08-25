@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 from logsentinel.ui.models import AppMode, ModelStatus
@@ -58,18 +60,23 @@ def render_status_header(
             AppMode.LIVE if selected_mode_str.lower() == "live" else AppMode.DEMO
         )
 
+    safe_name = html.escape(status.name)
+    safe_version = html.escape(status.version)
+    safe_kind = html.escape(status.model_kind)
+    safe_status = html.escape(status.status.upper())
+
     with col_info:
         is_ready = status.status.lower() in ("ready", "active", "online")
         status_color = COLOR_READY if is_ready else "#FF8A00"
         status_badge = (
             f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
             f'background-color:{status_color};margin-right:6px;"></span>'
-            f"<strong>{status.status.upper()}</strong>"
+            f"<strong>{safe_status}</strong>"
         )
         st.markdown(
             f"<div style='font-size: 13px; line-height: 1.6; padding-top: 4px;'>"
-            f"<div><strong>Model:</strong> {status.name} ({status.version})</div>"
-            f"<div><strong>Kind:</strong> {status.model_kind} | {status_badge}</div>"
+            f"<div><strong>Model:</strong> {safe_name} ({safe_version})</div>"
+            f"<div><strong>Kind:</strong> {safe_kind} | {status_badge}</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
