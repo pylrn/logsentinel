@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from enum import StrEnum
 
 
-class AppMode(str, Enum):
+class AppMode(StrEnum):
     LIVE = "live"
     DEMO = "demo"
 
 
-class AnomalyTone(str, Enum):
+class AnomalyTone(StrEnum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
