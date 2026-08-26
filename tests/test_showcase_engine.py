@@ -82,3 +82,18 @@ def test_local_cpu_inference_latency_budget():
     assert (
         elapsed_ms < 50.0
     ), f"Inference engine exceeded generous CI latency threshold: {elapsed_ms:.2f}ms"
+
+
+def test_invalid_profile_lookup_raises_value_error():
+    import pytest
+    with pytest.raises(ValueError, match="Unknown showcase environment"):
+        load_showcase_profile("non-existent-environment")
+
+
+def test_attribution_sum_matches_anomaly_score():
+    for profile in load_all_showcase_profiles():
+        for r in profile.records:
+            total_contribution = sum(r.contributions.values())
+            assert abs(total_contribution - r.anomaly_score) < 1e-4, (
+                f"Attribution mismatch for {r.id}: {total_contribution} vs {r.anomaly_score}"
+            )
