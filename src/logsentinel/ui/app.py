@@ -15,14 +15,17 @@ from logsentinel.ui.views import (
     render_onboarding_view,
     render_overview_view,
     render_pipeline_view,
+    render_showcase_view,
 )
 
-NAV_QUESTIONS: list[str] = [
-    "What is happening?",
-    "Why was this flagged?",
-    "How is the model performing?",
-    "How would my company use it?",
+WORKSPACE_OPTIONS: list[str] = [
+    "🔬 Model Proof & Generalization Showcase",
+    "1. What is happening? (Overview)",
+    "2. Why was this flagged? (Pipeline)",
+    "3. How is the model performing? (Diagnostics)",
+    "4. How would my company use it? (Onboarding & Feedback)",
 ]
+NAV_QUESTIONS: list[str] = WORKSPACE_OPTIONS
 
 
 def main(
@@ -43,23 +46,36 @@ def main(
     if "mode" not in st.session_state:
         st.session_state["mode"] = default_mode
     if "active_tab" not in st.session_state:
-        st.session_state["active_tab"] = NAV_QUESTIONS[0]
+        st.session_state["active_tab"] = WORKSPACE_OPTIONS[0]
 
     with st.sidebar:
         st.markdown(
             "<div class='brand-header'>🛡️ LogSentinel</div>",
             unsafe_allow_html=True,
         )
-        current_tab = st.session_state.get("active_tab", NAV_QUESTIONS[0])
+        current_tab = st.session_state.get("active_tab", WORKSPACE_OPTIONS[0])
         tab_idx = (
-            NAV_QUESTIONS.index(current_tab) if current_tab in NAV_QUESTIONS else 0
+            WORKSPACE_OPTIONS.index(current_tab)
+            if current_tab in WORKSPACE_OPTIONS
+            else 0
         )
-        selected_tab = st.radio(
-            "Navigation",
-            NAV_QUESTIONS,
+        selected_tab = st.sidebar.selectbox(
+            "Workspace",
+            WORKSPACE_OPTIONS,
             index=tab_idx,
-            key="nav_workspace_radio",
+            key="nav_workspace_select",
         )
+        if not isinstance(selected_tab, str):
+            radio_val = st.radio(
+                "Navigation",
+                WORKSPACE_OPTIONS,
+                index=tab_idx,
+                key="nav_workspace_radio",
+            )
+            selected_tab = (
+                radio_val if isinstance(radio_val, str) else WORKSPACE_OPTIONS[0]
+            )
+
         st.session_state["active_tab"] = selected_tab
         st.markdown(
             "<div class='rail-footer'>"
@@ -151,16 +167,37 @@ def main(
         state = demo_data
         client = None
 
-    active_tab = st.session_state.get("active_tab", NAV_QUESTIONS[0])
+    active_tab = st.session_state.get("active_tab", WORKSPACE_OPTIONS[0])
     target_env = st.session_state.get("environment", current_env)
 
-    if active_tab == "What is happening?":
+    if (
+        active_tab == "🔬 Model Proof & Generalization Showcase"
+        or "Showcase" in str(active_tab)
+    ):
+        render_showcase_view(state=state, client=client, environment=selected_env)
+    elif (
+        active_tab == "1. What is happening? (Overview)"
+        or active_tab == "What is happening?"
+        or "Overview" in str(active_tab)
+    ):
         render_overview_view(state=state, client=client, environment=target_env)
-    elif active_tab == "Why was this flagged?":
+    elif (
+        active_tab == "2. Why was this flagged? (Pipeline)"
+        or active_tab == "Why was this flagged?"
+        or "Pipeline" in str(active_tab)
+    ):
         render_pipeline_view(state=state, client=client, environment=target_env)
-    elif active_tab == "How is the model performing?":
+    elif (
+        active_tab == "3. How is the model performing? (Diagnostics)"
+        or active_tab == "How is the model performing?"
+        or "Diagnostics" in str(active_tab)
+    ):
         render_diagnostics_view(state=state, client=client, environment=target_env)
-    elif active_tab == "How would my company use it?":
+    elif (
+        active_tab == "4. How would my company use it? (Onboarding & Feedback)"
+        or active_tab == "How would my company use it?"
+        or "Onboarding" in str(active_tab)
+    ):
         render_onboarding_view(state=state, client=client, environment=target_env)
     else:
         render_overview_view(state=state, client=client, environment=target_env)

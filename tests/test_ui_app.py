@@ -252,3 +252,18 @@ def test_legacy_dashboard_api_client():
 
         score_res = client.score("hdfs", [{"message": "test"}])
         assert score_res["status"] == "scored"
+
+
+def test_main_renders_showcase_workspace(monkeypatch):
+    from logsentinel.ui.app import main
+
+    with (
+        patch("streamlit.sidebar.selectbox") as mock_ws,
+        patch("logsentinel.ui.app.render_showcase_view") as mock_showcase,
+        patch("streamlit.sidebar.radio") as mock_mode,
+    ):
+        mock_ws.return_value = "🔬 Model Proof & Generalization Showcase"
+        mock_mode.return_value = "Demo Mode (Fixtures)"
+        main()
+        assert mock_showcase.called
+
