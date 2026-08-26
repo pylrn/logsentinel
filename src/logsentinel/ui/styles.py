@@ -81,18 +81,23 @@ def get_theme_css() -> str:
 }}
 
 .stApp {{
-  background: var(--canvas);
-  color: var(--ink);
+  background-color: var(--canvas) !important;
+  color: var(--ink) !important;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }}
 
+/* Sidebar Navigation */
 [data-testid="stSidebar"] {{
-  background: var(--nav);
-  border-right: 1px solid #1C2B42;
+  background-color: var(--nav) !important;
+  border-right: 1px solid #1C2B42 !important;
 }}
 
 [data-testid="stSidebar"] * {{
   color: #EAF1FA !important;
+}}
+
+[data-testid="stSidebar"] hr {{
+  border-color: #1C2B42 !important;
 }}
 
 .brand-header {{
@@ -112,41 +117,111 @@ def get_theme_css() -> str:
   font-size: 11px;
 }}
 
+/* Banners */
 .honesty-banner {{
-  background: #FFF4E5;
-  border-left: 4px solid #FF8A00;
+  background: #FFF4E5 !important;
+  border-left: 4px solid #FF8A00 !important;
   border-radius: 6px;
-  padding: 8px 16px;
+  padding: 10px 16px;
   margin-bottom: 16px;
-  color: #994B00;
+  color: #994B00 !important;
   font-size: 13px;
   font-weight: 500;
 }}
 
 .error-banner {{
-  background: #FDE8E8;
-  border-left: 4px solid #E3242B;
+  background: #FDE8E8 !important;
+  border-left: 4px solid #E3242B !important;
   border-radius: 6px;
   padding: 12px 16px;
   margin-bottom: 16px;
-  color: #9B1C1C;
+  color: #9B1C1C !important;
 }}
 
-[data-testid="stMetric"], [data-testid="stDataFrame"], [data-testid="stPlotlyChart"] {{
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 10px;
+/* Metrics & Metric Cards - Strict High Contrast */
+[data-testid="stMetric"] {{
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 12px 16px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
 }}
 
-h1, h2, h3 {{
-  color: var(--ink);
+[data-testid="stMetricLabel"] {{
+  color: #4A5568 !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}}
+
+[data-testid="stMetricLabel"] p, [data-testid="stMetricLabel"] span {{
+  color: #4A5568 !important;
+  font-weight: 600 !important;
+}}
+
+[data-testid="stMetricValue"] {{
+  color: {COLOR_INK} !important;
+  font-size: 24px !important;
+  font-weight: 700 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}}
+
+[data-testid="stMetricValue"] div, [data-testid="stMetricValue"] span {{
+  color: {COLOR_INK} !important;
+}}
+
+/* Headings & Typography */
+h1, h2, h3, h4, h5, h6 {{
+  color: {COLOR_INK} !important;
   letter-spacing: -0.02em;
+  font-weight: 700 !important;
 }}
 
+p, span, div {{
+  color: {COLOR_INK};
+}}
+
+/* Widgets & Labels */
+[data-testid="stWidgetLabel"] label,
+[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] span,
+label {{
+  color: {COLOR_INK} !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+}}
+
+/* Radio Group Options */
+.stRadio [role="radiogroup"] label {{
+  color: {COLOR_INK} !important;
+}}
+
+.stRadio [role="radiogroup"] label span p {{
+  color: {COLOR_INK} !important;
+  font-weight: 500 !important;
+}}
+
+/* Sliders */
+.stSlider [data-baseweb="slider"] {{
+  margin-top: 6px;
+}}
+
+.stSlider [data-testid="stThumbValue"] {{
+  color: {COLOR_INK} !important;
+  font-weight: 700 !important;
+}}
+
+/* Dataframe & Tables */
+[data-testid="stDataFrame"] {{
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+}}
+
+/* Buttons */
 .stButton button {{
   border-radius: 8px;
   font-weight: 600;
+  border: 1px solid var(--border);
 }}
 </style>
 """
