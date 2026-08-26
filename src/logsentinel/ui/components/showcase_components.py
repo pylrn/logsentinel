@@ -204,7 +204,8 @@ def render_showcase_journey_stepper() -> None:
 
 def render_partition_health_cards(profile: ShowcaseEnvironmentProfile) -> None:
     """Render metric health cards for baseline fit, test accuracy, and false alert rate."""
-    col1, col2, col3, col4 = st.columns(4)
+    cols = st.columns(4)
+    col1, col2, col3, col4 = cols[0], cols[1], cols[2], cols[3]
     with col1:
         st.metric(
             label="Baseline Normal Fit",
@@ -256,7 +257,8 @@ def render_showcase_log_table(
         "Test Anomalies / Attacks (Future)",
     ]
 
-    col_filter, col_stats = st.columns([3, 2])
+    cols_top = st.columns([3, 2])
+    col_filter, col_stats = cols_top[0], cols_top[1]
     with col_filter:
         selected_filter = st.radio(
             "Filter Partition / Record Type",
@@ -430,7 +432,8 @@ def render_showcase_explainer(record: ShowcaseLogRecord, threshold: float) -> No
     st.code(record.raw_message_redacted, language="text")
 
     # 2-column breakdown
-    col_left, col_right = st.columns([1, 1], gap="medium")
+    cols_lr = st.columns([1, 1], gap="medium")
+    col_left, col_right = cols_lr[0], cols_lr[1]
 
     with col_left:
         st.markdown(

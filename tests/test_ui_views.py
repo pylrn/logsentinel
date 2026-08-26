@@ -340,9 +340,11 @@ def test_ui_views_exports():
         render_onboarding_view,
         render_overview_view,
         render_pipeline_view,
+        render_showcase_view,
     )
 
     assert callable(render_overview_view)
     assert callable(render_pipeline_view)
     assert callable(render_diagnostics_view)
     assert callable(render_onboarding_view)
+    assert callable(render_showcase_view)
