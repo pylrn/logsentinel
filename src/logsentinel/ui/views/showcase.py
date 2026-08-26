@@ -7,6 +7,7 @@ and causal operational impact across enterprise security, HDFS, and BGL environm
 from __future__ import annotations
 
 import html
+import textwrap
 from typing import TYPE_CHECKING, Any
 
 import streamlit as st
@@ -45,21 +46,19 @@ def render_showcase_view(
 ) -> None:
     """Render the Model Proof & Generalization Showcase workspace view."""
     # 1. Workspace Header
-    st.markdown(
-        f"""
-        <div style="margin-bottom: 20px;">
-            <h2 style="margin-bottom: 6px; font-weight: 700; color: {COLOR_INK};">
-                🔬 Model Proof & Generalization Showcase
-            </h2>
-            <div style="color: {COLOR_MUTED}; font-size: 14px; line-height: 1.5;">
-                Empirical proof of zero temporal data leakage, multi-domain generalization,
-                and causal business impact across enterprise security, cloud storage,
-                and supercomputing environments.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    header_html = textwrap.dedent(f"""
+<div style="margin-bottom: 20px;">
+    <h2 style="margin-bottom: 6px; font-weight: 700; color: {COLOR_INK};">
+        🔬 Model Proof & Generalization Showcase
+    </h2>
+    <div style="color: {COLOR_MUTED}; font-size: 14px; line-height: 1.5;">
+        Empirical proof of zero temporal data leakage, multi-domain generalization,
+        and causal business impact across enterprise security, cloud storage,
+        and supercomputing environments.
+    </div>
+</div>
+    """).strip()
+    st.markdown(header_html, unsafe_allow_html=True)
 
     # 2. Dataset Selector & Provenance Banner
     options = [k for k, _ in ENV_OPTIONS]
@@ -82,60 +81,42 @@ def render_showcase_view(
 
     safe_provenance = html.escape(profile.provenance_note)
     safe_desc = html.escape(profile.description)
-    st.markdown(
-        f"""
-        <div style="
-            background: #FFF4E5;
-            border: 1px solid #FF8A00;
-            border-left: 4px solid #FF8A00;
-            border-radius: 6px;
-            padding: 12px 16px;
-            margin-top: 8px;
-            margin-bottom: 20px;
-        ">
-            <div style="font-size: 13px; font-weight: 700; color: #994B00; margin-bottom: 4px;">
-                📌 Dataset Provenance & Attribution: {safe_provenance}
-            </div>
-            <div style="font-size: 12px; color: {COLOR_INK}; line-height: 1.45;">
-                {safe_desc}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    provenance_html = textwrap.dedent(f"""
+<div style="background:#FFF4E5;border:1px solid #FF8A00;border-left:4px solid #FF8A00;"""
+        f"""border-radius:6px;padding:12px 16px;margin-top:8px;margin-bottom:20px;">
+<div style="font-size:13px;font-weight:700;color:#994B00;margin-bottom:4px;">
+📌 Dataset Provenance & Attribution: {safe_provenance}
+</div>
+<div style="font-size:12px;color:{COLOR_INK};line-height:1.45;">
+{safe_desc}
+</div>
+</div>
+    """).strip()
+    st.markdown(provenance_html, unsafe_allow_html=True)
 
     # 3. 4-Stage Chronological Journey Stepper
     st.markdown(
-        f"""
-        <div style="font-size: 15px; font-weight: 700; color: {COLOR_INK};
-                    margin-top: 10px; margin-bottom: 10px;">
-            1. Zero-Leakage Chronological Pipeline Journey
-        </div>
-        """,
+        f"<div style='font-size:15px;font-weight:700;color:{COLOR_INK};"
+        f"margin-top:10px;margin-bottom:10px;'>"
+        f"1. Zero-Leakage Chronological Pipeline Journey</div>",
         unsafe_allow_html=True,
     )
     render_showcase_journey_stepper()
 
     # 4. Partition Health & Empirical Evaluation Cards
     st.markdown(
-        f"""
-        <div style="font-size: 15px; font-weight: 700; color: {COLOR_INK};
-                    margin-top: 20px; margin-bottom: 10px;">
-            2. Partition Health & Empirical Evaluation Metrics
-        </div>
-        """,
+        f"<div style='font-size:15px;font-weight:700;color:{COLOR_INK};"
+        f"margin-top:20px;margin-bottom:10px;'>"
+        f"2. Partition Health & Empirical Evaluation Metrics</div>",
         unsafe_allow_html=True,
     )
     render_partition_health_cards(profile)
 
     # 5. Interactive Train vs. Test Log Explorer Table
     st.markdown(
-        f"""
-        <div style="font-size: 15px; font-weight: 700; color: {COLOR_INK};
-                    margin-top: 24px; margin-bottom: 10px;">
-            3. Interactive Train vs. Test Log Explorer Table
-        </div>
-        """,
+        f"<div style='font-size:15px;font-weight:700;color:{COLOR_INK};"
+        f"margin-top:24px;margin-bottom:10px;'>"
+        f"3. Interactive Train vs. Test Log Explorer Table</div>",
         unsafe_allow_html=True,
     )
     selected_record = render_showcase_log_table(
@@ -145,12 +126,9 @@ def render_showcase_view(
 
     # 6. Deep Causal Explainer & Operational Business Impact
     st.markdown(
-        f"""
-        <div style="font-size: 15px; font-weight: 700; color: {COLOR_INK};
-                    margin-top: 24px; margin-bottom: 10px;">
-            4. Deep Causal Explainer & Operational Business Impact
-        </div>
-        """,
+        f"<div style='font-size:15px;font-weight:700;color:{COLOR_INK};"
+        f"margin-top:24px;margin-bottom:10px;'>"
+        f"4. Deep Causal Explainer & Operational Business Impact</div>",
         unsafe_allow_html=True,
     )
     if selected_record is not None:
