@@ -15,17 +15,30 @@ from logsentinel.ui.components.score_breakdown import (
     create_score_breakdown_figure,
     render_score_breakdown,
 )
+from logsentinel.ui.components.showcase_components import (
+    create_attribution_figure,
+    render_partition_health_cards,
+    render_showcase_explainer,
+    render_showcase_journey_stepper,
+    render_showcase_log_table,
+)
 from logsentinel.ui.components.status_header import render_status_header
 
 __all__ = [
     "create_anomaly_timeline_figure",
+    "create_attribution_figure",
     "create_score_breakdown_figure",
     "render_anomaly_timeline",
     "render_empty_state",
     "render_error_state",
     "render_incident_inspector",
     "render_log_pipeline_journey",
+    "render_partition_health_cards",
     "render_pipeline_stepper",
     "render_score_breakdown",
+    "render_showcase_explainer",
+    "render_showcase_journey_stepper",
+    "render_showcase_log_table",
     "render_status_header",
 ]
+
