@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="An evidence-first log anomaly detection research prototype.">
+  <title>LogSentinel — anomaly detection, made inspectable</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="wordmark" href="#top">Log<span>Sentinel</span></a>
+    <nav aria-label="Main navigation">
+      <a href="#workflow">How it works</a><a href="#replay">Replay</a><a href="#evidence">Evidence</a><a href="#run">Run it</a>
+    </nav>
+    <a class="button button-small" href="https://github.com/pylrn/logsentinel" data-repo-link>View source <span aria-hidden="true">↗</span></a>
+  </header>
+  <main id="main">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Research prototype · local-first</p>
+        <h1 id="hero-title">Find the log line that <em>doesn’t belong.</em></h1>
+        <p class="lede">LogSentinel turns noisy system events into redacted sequences, then gives an analyst the context behind an unusual pattern.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#replay">Explore a sample replay <span aria-hidden="true">↓</span></a>
+          <a class="button button-quiet" href="#evidence">See the limits</a>
+        </div>
+        <p class="fine-print">No logs are uploaded. This public page is a deterministic local replay, not hosted inference.</p>
+      </div>
+      <div class="terminal" aria-label="Illustrative anomaly score example">
+        <div class="terminal-top"><span></span><span></span><span></span><code>event/0482</code></div>
+        <div class="terminal-body">
+          <p class="terminal-label">observed template</p>
+          <code>sshd: PAM &lt;*&gt; failures · rhost=&lt;IP&gt;</code>
+          <div class="terminal-score"><span>ANOMALY SCORE</span><strong>0.87</strong><b>review</b></div>
+          <dl><div><dt>sequence</dt><dd>0.43</dd></div><div><dt>rarity</dt><dd>0.28</dd></div><div><dt>volume</dt><dd>0.16</dd></div></dl>
+        </div>
+      </div>
+    </section>
+
+    <section class="proof-strip" aria-label="Project boundaries">
+      <p><strong>Privacy first</strong><span>Redact before parse</span></p>
+      <p><strong>Evidence first</strong><span>Artifacts or explicit limits</span></p>
+      <p><strong>Human in the loop</strong><span>Explain, don't auto-remediate</span></p>
+    </section>
+
+    <section id="workflow" class="section" aria-labelledby="workflow-title">
+      <div class="section-heading"><p class="eyebrow">The method</p><h2 id="workflow-title">How it works</h2><p>Four small steps keep the decision understandable.</p></div>
+      <ol class="workflow">
+        <li><span>01</span><h3>Redact</h3><p>Typed placeholders remove sensitive values before parsing.</p></li>
+        <li><span>02</span><h3>Sequence</h3><p>Group HDFS events by block or place BGL into time windows.</p></li>
+        <li><span>03</span><h3>Score</h3><p>Fuse rarity, count patterns, and optional sequence-model signals.</p></li>
+        <li><span>04</span><h3>Review</h3><p>Show the expected pattern, observed event, and score components.</p></li>
+      </ol>
+    </section>
+
+    <section id="replay" class="section replay-section" aria-labelledby="replay-title">
+      <div class="section-heading split-heading"><div><p class="eyebrow">Hands on</p><h2 id="replay-title">Sample replay</h2></div><span class="provenance">● Illustrative replay</span></div>
+      <p class="section-intro">Select an isolated public scenario. All values below are redacted, static fixtures running in this browser.</p>
+      <div class="replay-shell">
+        <div class="environment-tabs" role="tablist" aria-label="Replay environment"></div>
+        <div class="replay-grid">
+          <aside class="event-list" aria-label="Replay events"><p class="panel-label">Ordered events</p><div id="event-list"></div></aside>
+          <article class="incident" aria-live="polite">
+            <p class="panel-label">Selected event</p>
+            <div id="incident-content"></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="evidence" class="section evidence" aria-labelledby="evidence-title">
+      <div class="section-heading"><p class="eyebrow">No magic numbers</p><h2 id="evidence-title">Evidence &amp; limits</h2><p>LogSentinel is an enterprise-oriented research prototype. It is not an autonomous incident-response system.</p></div>
+      <div class="evidence-grid">
+        <article><span class="status status-green">● Measured</span><h3>Versioned artifacts</h3><p>Only generated artifacts with a dataset, split, seed, and evaluation record should publish metrics.</p></article>
+        <article><span class="status status-amber">● Illustrative</span><h3>This replay</h3><p>It explains the scoring flow using deterministic public fixtures; it does not claim benchmark performance.</p></article>
+        <article><span class="status status-slate">■ Unavailable</span><h3>Hosted model inference</h3><p>The static site cannot train, load, or serve adapters. Run the research lab locally to work with artifacts.</p></article>
+      </div>
+    </section>
+
+    <section id="onboarding" class="section onboarding" aria-labelledby="onboarding-title">
+      <div class="section-heading"><p class="eyebrow">For a new environment</p><h2 id="onboarding-title">Onboard an environment, not a shared tenant.</h2></div>
+      <div class="onboarding-flow">
+        <div><span>01</span><h3>Define redaction</h3><p>Keep raw fields out of caches and templates.</p></div><i aria-hidden="true">→</i>
+        <div><span>02</span><h3>Collect normal history</h3><p>Fit parser, vocabulary, and baseline on earlier data only.</p></div><i aria-hidden="true">→</i>
+        <div><span>03</span><h3>Package artifacts</h3><p>Keep parser, threshold, adapter, and version scoped per environment.</p></div><i aria-hidden="true">→</i>
+        <div><span>04</span><h3>Monitor &amp; review</h3><p>Use feedback to recalibrate—never to silently mix tenants.</p></div>
+      </div>
+    </section>
+
+    <section id="run" class="section run" aria-labelledby="run-title">
+      <div><p class="eyebrow">Try it yourself</p><h2 id="run-title">Run it yourself, locally.</h2><p>The source package contains code, tests, documentation, and redacted fixtures—never private logs or base-model weights.</p></div>
+      <div class="run-card"><code>git clone https://github.com/pylrn/logsentinel</code><code>uv sync --extra dashboard --extra dev</code><code>uv run logsentinel dashboard</code><a class="button button-primary" href="https://github.com/pylrn/logsentinel" data-repo-link>Open GitHub <span aria-hidden="true">↗</span></a></div>
+    </section>
+  </main>
+  <footer><a class="wordmark" href="#top">Log<span>Sentinel</span></a><p>Enterprise log anomaly detection · research prototype</p><a href="#evidence">Evidence &amp; limits</a></footer>
+  <script src="assets/replay-data.js"></script><script src="assets/app.js"></script>
+</body>
+</html>
