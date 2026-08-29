@@ -58,6 +58,8 @@ def test_theme_css_generation():
     assert ".error-banner" in css
     assert '[data-testid="stMetric"]' in css
     assert ".stButton button" in css
+    assert "p, span, div" not in css
+    assert ".provenance-badge" in css
 
 
 @pytest.mark.parametrize(

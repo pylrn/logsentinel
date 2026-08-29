@@ -176,8 +176,51 @@ h1, h2, h3, h4, h5, h6 {{
   font-weight: 700 !important;
 }}
 
-p, span, div {{
+[data-testid="stMarkdownContainer"] > p,
+[data-testid="stMarkdownContainer"] > ul,
+[data-testid="stMarkdownContainer"] > ol {{
   color: {COLOR_INK};
+}}
+
+/* Story views own their local foreground colours; do not override nested HTML globally. */
+.journey-hero {{
+  background: #0B1728;
+  border: 1px solid #1C2B42;
+  border-radius: 18px;
+  color: #F8FAFC !important;
+  padding: 36px;
+  box-shadow: 0 14px 34px rgba(11, 23, 40, 0.16);
+}}
+.journey-hero * {{ color: inherit; }}
+.journey-eyebrow {{
+  color: #9EC5FF !important;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}}
+.journey-copy {{ color: #D5E1F0 !important; line-height: 1.6; max-width: 760px; }}
+.provenance-badge {{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 750;
+}}
+.provenance-illustrative {{
+  background: #FFF4E5; border: 1px solid #C15D00; color: #7A3900 !important;
+}}
+.provenance-measured {{
+  background: #E8F8F0; border: 1px solid #087A4D; color: #075237 !important;
+}}
+.provenance-unavailable {{
+  background: #EEF2F6; border: 1px solid #64748B; color: #334155 !important;
+}}
+a:focus-visible, button:focus-visible, [role="button"]:focus-visible {{
+  outline: 3px solid #0B6CFB !important;
+  outline-offset: 3px;
 }}
 
 /* Widgets & Labels */
