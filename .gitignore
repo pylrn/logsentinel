@@ -12,3 +12,14 @@ data/cache/
 data/processed/
 reports/generated/
 .superpowers/
+.streamlit/secrets.toml
+data/
+artifacts/
+dist/
+build/
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+*.docx
+*.pdf
