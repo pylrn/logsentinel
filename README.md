@@ -6,7 +6,7 @@ It is designed for reproducible HDFS and BGL experiments. It is not an autonomou
 
 ## Public demo and research lab
 
-The **Static public showcase** at [showcase-ten-liart.vercel.app](https://showcase-ten-liart.vercel.app) (source in [`showcase/`](showcase/)) is a portfolio-style explanation with an **illustrative replay**. It runs entirely in the visitor's browser, makes no network scoring calls, and never uploads or stores log data. It does not host model inference or claim benchmark results.
+The **Static public showcase** at [logsentinel-demo-pylrn.vercel.app](https://logsentinel-demo-pylrn.vercel.app) (source in [`showcase/`](showcase/)) is a portfolio-style explanation with an **illustrative replay**. It runs entirely in the visitor's browser, makes no network scoring calls, and never uploads or stores log data. It does not host model inference or claim benchmark results.
 
 The **local Streamlit research lab** is the full Python dashboard used with versioned local artifacts. Run it from this checkout with `logsentinel dashboard --api-url http://127.0.0.1:8000`. The base model and environment adapters remain separate, optional downloads on the external SSD.
 
