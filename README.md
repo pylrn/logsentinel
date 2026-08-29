@@ -4,6 +4,12 @@ LogSentinel is a LogLLaMA-inspired research prototype for privacy-safe log anoma
 
 It is designed for reproducible HDFS and BGL experiments. It is not an autonomous incident-response product and does not ship invented public benchmark results.
 
+## Public demo and research lab
+
+The **Static public showcase** in [`showcase/`](showcase/) is a portfolio-style explanation with an **illustrative replay**. It runs entirely in the visitor's browser, makes no network scoring calls, and never uploads or stores log data. It does not host model inference or claim benchmark results.
+
+The **local Streamlit research lab** is the full Python dashboard used with versioned local artifacts. Run it from this checkout with `logsentinel dashboard --api-url http://127.0.0.1:8000`. The base model and environment adapters remain separate, optional downloads on the external SSD.
+
 ## What is implemented
 
 - Streaming Hugging Face record adapters for `logfit-project/HDFS_v1` and `logfit-project/BGL`.

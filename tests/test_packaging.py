@@ -9,6 +9,9 @@ def test_declared_readme_exists_and_contains_runnable_quick_start() -> None:
     assert "logsentinel run-all" in text
     assert "logsentinel serve" in text
     assert "logsentinel dashboard" in text
+    assert "Static public showcase" in text
+    assert "local Streamlit research lab" in text
+    assert "illustrative replay" in text.lower()
 
 
 def test_handoff_documents_and_colab_notebook_have_no_placeholders() -> None:
